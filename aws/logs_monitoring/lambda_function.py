@@ -194,7 +194,12 @@ include_regex = compileRegex("INCLUDE_AT_MATCH", INCLUDE_AT_MATCH)
 EXCLUDE_AT_MATCH = os.getenv("EXCLUDE_AT_MATCH", default=None)
 exclude_regex = compileRegex("EXCLUDE_AT_MATCH", EXCLUDE_AT_MATCH)
 
-if "DD_KMS_API_KEY" in os.environ:
+if "DD_API_KEY_SECRET_ARN" in os.environ:
+    SECRET_ARN = os.environ["DD_API_KEY_SECRET_ARN"]
+    DD_API_KEY = boto3.client("secretsmanager").get_secret_value(
+        SecretId=SECRET_ARN
+    )["SecretString"]
+elif "DD_KMS_API_KEY" in os.environ:
     ENCRYPTED = os.environ["DD_KMS_API_KEY"]
     DD_API_KEY = boto3.client("kms").decrypt(
         CiphertextBlob=base64.b64decode(ENCRYPTED)
@@ -255,7 +260,7 @@ DD_SOURCE = "ddsource"
 DD_CUSTOM_TAGS = "ddtags"
 DD_SERVICE = "service"
 DD_HOST = "host"
-DD_FORWARDER_VERSION = "2.3.2"
+DD_FORWARDER_VERSION = os.environ.get("DD_FORWARDER_VERSION", "unknown")
 
 class RetriableException(Exception):
     pass
