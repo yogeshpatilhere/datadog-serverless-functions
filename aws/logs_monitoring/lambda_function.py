@@ -124,6 +124,10 @@ exclude_regex = compileRegex("EXCLUDE_AT_MATCH", EXCLUDE_AT_MATCH)
 
 rds_regex = re.compile("/aws/rds/(instance|cluster)/(?P<host>[^/]+)/(?P<name>[^/]+)")
 
+HOST_IDENTITY_REGEXP = re.compile(
+    r"/arn:aws:sts::\d+:assumed-role\/.*?/(?P<session_name>i-[0-9a-f]{17})")
+
+
 if DD_MULTILINE_LOG_REGEX_PATTERN:
     try:
         multiline_regex = re.compile(
@@ -535,6 +539,34 @@ def extract_ddtags_from_message(event):
         event[DD_CUSTOM_TAGS] = f"{event[DD_CUSTOM_TAGS]},{extracted_ddtags}"
 
 
+def extract_arn_hostname(event):
+    """Extract the hostname from userIdentity.arn field if it matches AWS hostnames
+
+    >>> extract_arn_hostname({"message": json.dumps({"usertIdentity": {"arn": ""}})})
+    i-0123456789abcdef0
+    >>> extract_arn_hostname({"message": "test"})
+    None
+    """
+    logger.debug('extract arn hostname from %r', event.get("message"))
+    message = event.get("message")
+    if message is not None:
+        if isinstance(message, str):
+            try:
+                message = json.loads(message)
+            except json.JSONDecodeError:
+                return None
+
+        logger.debug('event before match %r', event)
+        useridentify_arn = message.get("userIdentity", {}).get("arn")
+        if useridentify_arn is not None:
+            match = HOST_IDENTITY_REGEXP.match(useridentify_arn)
+            if match is not None:
+                logger.debug("matched with %r", match)
+                return match.group("session_name")
+
+    return None
+
+
 def add_metadata_to_lambda_log(event):
     """Mutate log dict to add tags, host, and service metadata
 
@@ -556,6 +588,12 @@ def add_metadata_to_lambda_log(event):
 
     # Set Lambda ARN to "host"
     event[DD_HOST] = lambda_log_arn
+
+    # Enrich host to be the aws host
+    extracted_arn_hostname = extract_arn_hostname(event)
+    if extracted_arn_hostname is not None:
+        event[DD_HOST] = extracted_arn_hostname
+    logger.debug("event[DD_HOST] = %r", event[DD_HOST])
 
     # Function name is the seventh piece of the ARN
     function_name = lambda_log_arn.split(":")[6]
